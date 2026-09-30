@@ -52,6 +52,10 @@
             android:id="@+id/view_log"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="48dp" android:text="@string/view_log" />
+        <Button
+            android:id="@+id/export_csv"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:text="@string/export_csv" />
         <TextView
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="@string/log_note" android:layout_marginTop="12dp" />

@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.OutputStream
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class EventLoggerTest {
     @get:Rule val temporary = TemporaryFolder()
@@ -17,6 +22,67 @@ class EventLoggerTest {
         assertEquals(EventLogger.HEADER.trimEnd(), rows[0])
         assertTrue(rows[1].endsWith(",outage_start,power,down,,,50,3"))
         assertTrue(rows[2].endsWith(",outage_end,power,up,100,,150,3"))
+    }
+
+    @Test fun exportIncludesAllRowsAndExcludesAppendsWhileDestinationIsWriting() {
+        val file = temporary.newFile("events.csv")
+        val logger = EventLogger(file)
+        repeat(60) {
+            logger.append("heartbeat", "service", "up", EventTime(it.toLong(), it.toLong()), 1)
+        }
+        val original = file.readBytes()
+        val worker = Executors.newSingleThreadExecutor()
+        var appended = false
+        val output = object : ByteArrayOutputStream() {
+            override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                if (!appended) {
+                    appended = true
+                    // A separate monitoring writer must proceed even while export is writing.
+                    worker.submit {
+                        logger.append("outage_start", "router", "down", EventTime(100, 100), 1)
+                    }.get(2, TimeUnit.SECONDS)
+                }
+                super.write(buffer, offset, length)
+            }
+        }
+        try {
+            logger.exportSnapshot(output)
+            assertArrayEquals(original, output.toByteArray())
+            assertEquals(62, file.readLines().size)
+        } finally {
+            worker.shutdownNow()
+        }
+    }
+
+    @Test fun missingOrEmptyLogExportsOnlyHeaderWithoutCreatingLocalEvents() {
+        val missing = java.io.File(temporary.root, "missing.csv")
+        val empty = temporary.newFile("empty.csv")
+        listOf(missing, empty).forEach { file ->
+            val output = ByteArrayOutputStream()
+            EventLogger(file).exportSnapshot(output)
+            assertEquals(EventLogger.HEADER, output.toString("UTF-8"))
+        }
+        assertFalse(missing.exists())
+        assertEquals(0L, empty.length())
+    }
+
+    @Test fun failedExportPreservesLogAndAllowsFurtherAppends() {
+        val file = temporary.newFile("events.csv")
+        val logger = EventLogger(file)
+        logger.append("heartbeat", "service", "up", EventTime(1, 1), 1)
+        val original = file.readBytes()
+        val broken = object : OutputStream() {
+            override fun write(value: Int) { throw IOException("Destination full") }
+        }
+        try {
+            logger.exportSnapshot(broken)
+            fail("Export should report the destination error")
+        } catch (error: IOException) {
+            assertEquals("Destination full", error.message)
+        }
+        assertArrayEquals(original, file.readBytes())
+        logger.append("heartbeat", "service", "up", EventTime(2, 2), 1)
+        assertEquals(3, file.readLines().size)
     }
 
     @Test fun escapesCsvAndLimitsDisplayedRowsWithoutDeletingEvents() {

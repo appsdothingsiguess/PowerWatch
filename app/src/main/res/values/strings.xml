@@ -3,5 +3,6 @@
     <string name="start_monitoring">Start monitoring</string>
     <string name="stop_monitoring">Stop monitoring</string>
     <string name="view_log">Refresh event log</string>
+    <string name="export_csv">Export CSV</string>
     <string name="log_note">Most recent 50 CSV rows. All events are retained locally. This records the phone’s external charger power, not proof of a household outage.</string>
 </resources>

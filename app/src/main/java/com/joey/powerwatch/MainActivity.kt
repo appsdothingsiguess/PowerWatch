@@ -2,6 +2,8 @@ package com.joey.powerwatch
 
 import android.Manifest
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -26,6 +28,11 @@ class MainActivity : AppCompatActivity() {
     private val logReader = Executors.newSingleThreadExecutor()
     private var localError = ""
     private var savingConfiguration = false
+    private var exporting = false
+    private val exportDocument = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) exportLog(uri)
+    }
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()) { startMonitoring() }
     private val refresh = object : Runnable {
@@ -57,6 +64,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<Button>(R.id.view_log).setOnClickListener { showLog() }
+        findViewById<Button>(R.id.export_csv).setOnClickListener {
+            try {
+                exportDocument.launch("PowerWatch-${System.currentTimeMillis()}.csv")
+            } catch (error: ActivityNotFoundException) {
+                localError = "No document picker available: " + error.message
+                showStatus()
+            }
+        }
         val preferences = getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
         findViewById<EditText>(R.id.check_interval).setText(preferences.getLong("interval_ms", 1000).toString())
         findViewById<EditText>(R.id.gateway_override).setText(preferences.getString("gateway_override", ""))
@@ -136,6 +151,32 @@ class MainActivity : AppCompatActivity() {
         listOf(R.id.check_interval, R.id.gateway_override, R.id.internet_target, R.id.failure_threshold)
             .forEach { findViewById<EditText>(it).isEnabled = !status.running && !savingConfiguration }
         findViewById<Button>(R.id.stop_monitoring).isEnabled = status.running
+        findViewById<Button>(R.id.export_csv).isEnabled = !exporting
+    }
+
+    private fun exportLog(uri: Uri) {
+        exporting = true
+        localError = "Exporting CSV…"
+        showStatus()
+        logReader.execute {
+            val result = try {
+                val output = contentResolver.openOutputStream(uri, "w")
+                    ?: throw IOException("Unable to open the selected document")
+                output.use { EventLogger(File(filesDir, "events.csv")).exportSnapshot(it) }
+                "CSV exported"
+            } catch (error: IOException) {
+                "CSV export failed; the destination may be incomplete: " + error.message
+            } catch (error: SecurityException) {
+                "CSV export permission denied: " + error.message
+            }
+            runOnUiThread {
+                if (!isDestroyed) {
+                    exporting = false
+                    localError = result
+                    showStatus()
+                }
+            }
+        }
     }
 
     private fun showLog() {

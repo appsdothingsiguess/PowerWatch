@@ -165,3 +165,113 @@ discovery can select IPv4 or IPv6. Internet reachability is specifically the
 configured endpoint's TCP port 443. The initial ICMP/TCP-echo method works on this
 phone/router in baseline and recovery tests; longer-term false-failure testing
 remains necessary. HostProbe allows a replacement if testing requires one.
+
+## September 30 continuation — CSV export and acceptance checks
+
+Root and app AGENTS.md and PLAN.md were read before continuing.
+The worktree was clean at entry. PLAN.md remains unchanged.
+No production dependency or permission was added.
+
+### Implementation and automated verification
+
+- Added Export CSV using Android's CreateDocument/Save As picker.
+- File-provider writes run on the Activity's existing background executor.
+- EventLogger captures a complete-row byte boundary under its writer lock, then
+  streams only those bytes without retaining the lock during destination writes.
+  Later monitoring appends remain in the internal log for the next export.
+- Missing/empty logs export the CSV header.
+- Cancellation does not change the internal log. Destination I/O and permission
+  errors are shown explicitly; a failed destination may contain a partial copy.
+- Added tests for exporting more than the 50 displayed rows, concurrent appends,
+  snapshot boundaries, missing/empty logs, and destination failure preservation.
+- Baseline unit tests and assembleDebug passed.
+- Focused EventLoggerTest passed after implementation.
+- Complete :app:testDebugUnitTest and :app:assembleDebug passed afterward.
+- git diff --check passed. IDE inspections reported style warnings, no errors.
+- Installed the debug APK with adb install -r, retaining existing app data.
+
+### Overnight observations before updating
+
+Device: Samsung SM-A146U, Android 15/API 35, targetSdk 36.
+The prior foreground service and partial wake lock had approximately 12 hours
+28 minutes of uninterrupted uptime at inspection.
+
+149 heartbeats were present from September 29 21:24:02.941 to September 30
+09:44:04.864 (phone-local offset -07:00). The 148 monotonic gaps ranged from
+300009 to 300024 ms, averaging approximately 300013 ms. No service restart
+appeared in that interval. This establishes heartbeat continuity; the entire
+overnight screen state was not independently observed.
+
+Three short simultaneous router/internet outages were logged on September 30:
+
+| First failure, phone-local time | Router duration | Internet duration |
+|---|---:|---:|
+| 04:10:45.718 | 1776 ms | 1795 ms |
+| 06:42:18.048 | 2307 ms | 2317 ms |
+| 08:45:48.643 | 2312 ms | 2316 ms |
+
+Router reasons were gateway timeout/unreachable; internet reasons were TCP
+SocketTimeoutException. These are unverified interruptions, potentially false
+positives. The event records alone cannot distinguish actual LAN loss from
+phone Wi-Fi suspension or transient probe failure. No Wi-Fi lock or threshold
+change was introduced without further evidence.
+
+At inspection battery level was 68%, temperature 29.0 °C, and USB power was
+connected. This snapshot does not establish 24-hour thermal/battery acceptance.
+
+### Updated physical checks
+
+PASS — Stop/Start:
+- Startup after APK replacement explicitly logged monitoring_interrupted.
+- Started at 09:48:39.727; router and internet reached initial UP states.
+- Stopped through the Activity at 09:49:15.899.
+- Service inventory became empty, no held PowerWatch partial wake lock remained,
+  and the monitoring_stopped row was persisted.
+- Restarted through the Activity at 09:49:42.261.
+- Foreground service, partial wake lock, and healthy gateway probes returned.
+
+PASS — full CSV export during monitoring:
+- Saved through the system picker to phone Downloads:
+  PowerWatch-1790787006583.csv.
+- Activity reported CSV exported and monitoring remained foreground.
+- Exported and internal files had matching SHA-256 at comparison:
+  cd2affc95a83cd3b998fba80658a21bc5485f3015260c2702f5783997126e1d6.
+- No internal log records were deleted.
+
+PASS — Recents removal with screen-off probing:
+- Swiped only PowerWatch's Activity card out of Recents.
+- Confirmed its card/task disappeared; service remained foreground.
+- Sent KEYCODE_SLEEP and confirmed mWakefulness=Dozing with partial wake lock.
+- Temporarily disabled phone Wi-Fi for eight seconds, restoring it in finally.
+- Both targets persisted exactly one new loss/recovery pair; no power transition.
+- Auto gateway rediscovery returned wlan0 / 192.168.0.1.
+
+```csv
+2026-09-30T09:53:46.716-07:00,outage_start,router,down,,No active Wi-Fi network,70632104,15
+2026-09-30T09:53:46.716-07:00,outage_start,internet,down,,No active Wi-Fi network; cellular excluded,70632104,15
+2026-09-30T09:53:56.297-07:00,outage_end,router,up,9581,Wi-Fi interface ICMP/TCP echo,70641685,15
+2026-09-30T09:53:56.297-07:00,outage_end,internet,up,9581,Wi-Fi TCP port 443,70641685,15
+```
+
+Both monotonic durations are 70641685 - 70632104 = 9581 ms.
+This tests phone Wi-Fi removal, not a physical WAN interruption.
+Working cellular fallback is still not established: the active-agent inventory
+showed validated Wi-Fi, without an active usable cellular agent; historical
+connectivity entries were not treated as evidence of current cellular access.
+
+### Remaining work and current state
+
+- Investigate whether overnight network interruptions were real or false positives.
+- Complete extended screen-off and 24-hour reliability/thermal acceptance.
+- Validate manual gateway override and configurable interval/threshold physically.
+- Verify Wi-Fi failure with independently working cellular data when available.
+- WAN-only testing remains skipped at the user's prior request.
+- Boot restart/settings and reboot validation remain unimplemented/pending.
+- Clear-log controls and signed release APK remain future plan work.
+- Timed controlled outages and wall-clock/gateway-change acceptance remain pending.
+
+At the end of the controlled Wi-Fi test, Wi-Fi was restored, both probes were UP,
+the Activity remained removed from Recents, and the screen was Dozing.
+Monitoring remained foreground with its partial wake lock held.
+A subsequent heartbeat at 09:54:42.274 (elapsed 70687662) reported connected
+power and healthy router/internet while the screen was still Dozing.

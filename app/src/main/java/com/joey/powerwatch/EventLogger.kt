@@ -2,6 +2,8 @@ package com.joey.powerwatch
 
 import java.io.File
 import java.io.FileOutputStream
+import java.io.EOFException
+import java.io.OutputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -23,6 +25,28 @@ class EventLogger(private val file: File) {
             }
             output.write(row.toByteArray(Charsets.UTF_8))
             output.fd.sync()
+        }
+    }
+
+    /** Copies complete rows present at capture time without holding up new monitoring events. */
+    fun exportSnapshot(output: OutputStream) {
+        val snapshot = synchronized(fileLock) {
+            if (!file.exists() || file.length() == 0L) null
+            else file.inputStream() to file.length()
+        }
+        if (snapshot == null) {
+            output.write(HEADER.toByteArray(Charsets.UTF_8))
+            return
+        }
+        snapshot.first.use { input ->
+            var remaining = snapshot.second
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (remaining > 0) {
+                val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                if (count < 0) throw EOFException("Event log changed during export")
+                output.write(buffer, 0, count)
+                remaining -= count
+            }
         }
     }
 
