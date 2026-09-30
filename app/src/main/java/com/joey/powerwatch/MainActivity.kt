@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
         }
         val preferences = getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
         findViewById<EditText>(R.id.check_interval).setText(preferences.getLong("interval_ms", 1000).toString())
+        findViewById<EditText>(R.id.heartbeat_interval).setText((preferences.getLong("heartbeat_ms", 300_000) / 1000).toString())
         findViewById<EditText>(R.id.gateway_override).setText(preferences.getString("gateway_override", ""))
         findViewById<EditText>(R.id.internet_target).setText(preferences.getString("internet_ip", "1.1.1.1"))
         findViewById<EditText>(R.id.failure_threshold).setText(preferences.getInt("failure_threshold", 2).toString())
@@ -102,7 +103,10 @@ class MainActivity : AppCompatActivity() {
                 findViewById<EditText>(R.id.gateway_override).text.toString().trim(),
                 findViewById<EditText>(R.id.internet_target).text.toString().trim(),
                 findViewById<EditText>(R.id.failure_threshold).text.toString().toIntOrNull()
-                    ?: throw IllegalArgumentException("Enter a failure threshold"))
+                    ?: throw IllegalArgumentException("Enter a failure threshold"),
+                heartbeatMs = (findViewById<EditText>(R.id.heartbeat_interval).text.toString().toLongOrNull()
+                    ?.takeIf { it in 10..3600 }
+                    ?: throw IllegalArgumentException("Heartbeat must be 10–3600 seconds")) * 1000)
             val preferences = getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
             // Save outside the UI thread; the next service start logs the applied configuration.
             val restartAfterBoot = findViewById<CheckBox>(R.id.start_after_reboot).isChecked
@@ -111,6 +115,7 @@ class MainActivity : AppCompatActivity() {
             logReader.execute {
                 val saved = preferences.edit()
                     .putLong("interval_ms", config.intervalMs)
+                    .putLong("heartbeat_ms", config.heartbeatMs)
                     .putString("gateway_override", config.gatewayOverride)
                     .putString("internet_ip", config.internetIp)
                     .putInt("failure_threshold", config.failureThreshold)
@@ -159,7 +164,9 @@ class MainActivity : AppCompatActivity() {
             "\nInternet via Wi-Fi: " + (if (status.running) status.internet else "Not monitored") +
             "\n" + (if (status.running) status.wifi else "") +
             "\nLast network outage: " + status.lastNetworkOutage +
-            "\n" + status.configuration + "\nHeartbeat: 5 minutes." +
+            "\n" + status.configuration + "\nHeartbeat: " +
+            (getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE).getLong("heartbeat_ms", 300_000) / 1000) +
+            " seconds (service check-in)." +
             "\nRestart after reboot: " + (if (getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
                 .getBoolean("start_after_reboot", true)) "Enabled when monitoring was running" else "Disabled") +
             "\n" + getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE).getString("boot_start_error", "").orEmpty() + notificationNote +
@@ -167,7 +174,7 @@ class MainActivity : AppCompatActivity() {
             (if (localError.isNotEmpty()) "\n" + localError else "")
         findViewById<Button>(R.id.start_monitoring).isEnabled = canEdit
         findViewById<Button>(R.id.save_configuration).isEnabled = canEdit
-        listOf(R.id.check_interval, R.id.gateway_override, R.id.internet_target, R.id.failure_threshold)
+        listOf(R.id.check_interval, R.id.heartbeat_interval, R.id.gateway_override, R.id.internet_target, R.id.failure_threshold)
             .forEach { findViewById<EditText>(it).isEnabled = canEdit }
         findViewById<CheckBox>(R.id.start_after_reboot).isEnabled = canEdit
         findViewById<Button>(R.id.stop_monitoring).isEnabled = status.running

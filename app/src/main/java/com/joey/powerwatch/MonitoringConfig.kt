@@ -5,13 +5,15 @@ data class MonitoringConfig(
     val intervalMs: Long = 1000,
     val gatewayOverride: String = "",
     val internetIp: String = "1.1.1.1",
-    val failureThreshold: Int = 2
+    val failureThreshold: Int = 2,
+    val heartbeatMs: Long = 300_000
 ) {
     init {
         require(intervalMs in 1000..60_000) { "Interval must be 1000–60000 ms" }
         require(gatewayOverride.isEmpty() || validIp(gatewayOverride)) { "Gateway must be a unicast IPv4 address or blank for auto" }
         require(validIp(internetIp)) { "Internet target must be a unicast IPv4 address" }
         require(failureThreshold in 1..10) { "Failure threshold must be 1–10" }
+        require(heartbeatMs in 10_000..3_600_000) { "Heartbeat must be 10–3600 seconds" }
     }
 
     companion object {

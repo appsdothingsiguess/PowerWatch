@@ -21,6 +21,14 @@
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="48dp" android:inputType="number"
             android:hint="Check interval in milliseconds (1000–60000)" />
+        <TextView
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Heartbeat interval (seconds): confirms the service is running. Power changes are logged immediately." />
+        <EditText
+            android:id="@+id/heartbeat_interval"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:inputType="number"
+            android:hint="Heartbeat in seconds (10–3600)" />
         <EditText
             android:id="@+id/gateway_override"
             android:layout_width="match_parent" android:layout_height="wrap_content"

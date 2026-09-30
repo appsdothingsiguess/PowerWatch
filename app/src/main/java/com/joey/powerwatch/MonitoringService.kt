@@ -44,7 +44,7 @@ class MonitoringService : Service() {
             guarded {
                 record("heartbeat", "service", "up", PowerMonitor.now(),
                     detail = "Power=" + Status.power + "; router=" + Status.router + "; internet=" + Status.internet + "; " + Status.wifi)
-                worker.postDelayed(this, HEARTBEAT_MS)
+                worker.postDelayed(this, config.heartbeatMs)
             }
         }
     }
@@ -90,7 +90,8 @@ class MonitoringService : Service() {
             preferences.getLong("interval_ms", 1000),
             preferences.getString("gateway_override", "").orEmpty(),
             preferences.getString("internet_ip", "1.1.1.1").orEmpty(),
-            preferences.getInt("failure_threshold", 2))
+            preferences.getInt("failure_threshold", 2),
+            preferences.getLong("heartbeat_ms", 300_000))
         routerMachine = OutageStateMachine(config.failureThreshold)
         internetMachine = OutageStateMachine(config.failureThreshold)
         Status.power = "Unknown"
@@ -141,7 +142,7 @@ class MonitoringService : Service() {
                 }
                 preferences.edit().remove("boot_start_error").apply()
                 record(if (intent == null || intent.action == ACTION_BOOT) "service_restart" else "monitoring_started",
-                    "service", "up", startTime, detail = Status.configuration + "; heartbeat every 5 minutes" +
+                    "service", "up", startTime, detail = Status.configuration + "; heartbeat every ${config.heartbeatMs / 1000} seconds" +
                         (if (intent?.action == ACTION_BOOT) "; resumed after reboot" else ""))
                 probes = ProbeEngine(worker, config, ::onProbe)
                 networkMonitor = NetworkMonitor(this, worker) { path ->
@@ -158,7 +159,7 @@ class MonitoringService : Service() {
                 }.also { it.start() }
                 probes?.start()
                 checkpoint(true)
-                worker.postDelayed(heartbeat, HEARTBEAT_MS)
+                worker.postDelayed(heartbeat, config.heartbeatMs)
             }
         }
         if (!monitor.start()) {
@@ -308,7 +309,6 @@ class MonitoringService : Service() {
         const val PREFS = "monitoring"
         private const val CHANNEL = "power_monitoring"
         private const val NOTIFICATION_ID = 1
-        private const val HEARTBEAT_MS = 300_000L
     }
 
     /** Live process state; persisted 'active' is restart intent, not proof of a running service. */

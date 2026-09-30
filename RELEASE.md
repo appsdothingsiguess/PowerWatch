@@ -40,7 +40,9 @@ logs have been exported and verified: uninstalling removes internal app data.
 The signed release APK has been built but has not replaced the debug installation.
 
 Logs save automatically to the phone's internal app storage as `files/events.csv`.
-Each event and five-minute heartbeat is appended and synced to disk. Export CSV
+Each event and configurable heartbeat is appended and synced to disk.
+Heartbeat interval is set while stopped, in seconds (10–3600; default 300).
+Power changes are recorded immediately, independently of the heartbeat interval. Export CSV
 creates a separate user-selected copy. No broad storage permission is needed.
 Clear Log requires stopped monitoring and explicit confirmation, and preserves
 exported copies. It clears the CSV history; the last-outage status summary is

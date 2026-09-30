@@ -10,6 +10,7 @@ class MonitoringConfigTest {
         assertEquals(2, config.failureThreshold)
         assertEquals("", config.gatewayOverride)
         assertEquals("1.1.1.1", config.internetIp)
+        assertEquals(300_000L, config.heartbeatMs)
     }
 
     @Test fun numericTargetsAvoidDnsAndRejectAmbiguousOrNonUnicastAddresses() {
@@ -19,6 +20,23 @@ class MonitoringConfigTest {
         }
         assertTrue(MonitoringConfig.validIp("192.168.1.1"))
         assertTrue(MonitoringConfig.validIp("1.1.1.1"))
+    }
+
+    @Test fun heartbeatBoundsAreIndependentOfProbeInterval() {
+        listOf(10_000L, 60_000L, 3_600_000L).forEach {
+            val config = MonitoringConfig(heartbeatMs = it)
+            assertEquals(it, config.heartbeatMs)
+            assertEquals(1000L, config.intervalMs)
+            assertEquals(2, config.failureThreshold)
+        }
+        listOf(0L, 9_999L, 3_600_001L, Long.MAX_VALUE).forEach {
+            try {
+                MonitoringConfig(heartbeatMs = it)
+                fail("Invalid heartbeat accepted: $it")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().contains("Heartbeat"))
+            }
+        }
     }
 
     @Test(expected = IllegalArgumentException::class)

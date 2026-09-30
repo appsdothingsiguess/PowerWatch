@@ -25,6 +25,7 @@ No production dependency was added.
 - Confirmed Clear Log and signed release APK: requested.
 - Logs must save automatically to disk.
 - Commit completed work and maintain a Phase 3 handoff.
+- Add an option to change the heartbeat interval; power events remain immediate.
 
 ## Implemented
 
@@ -55,7 +56,8 @@ Android documentation was checked for targetSdk 36 foreground-service behavior:
 - Automatic persistence already existed: each event/heartbeat is appended to
   internal files/events.csv and FileDescriptor.sync is called.
 - No export or Save button is required for internal persistence.
-- Heartbeats occur every five minutes; successful probes are not logged per second.
+- Heartbeats are configurable from 10–3600 seconds, default 300 seconds;
+  successful probes are not logged per second.
 - UI wording now states that logs save automatically.
 - Export CSV creates a separate user-selected snapshot.
 - Clear Log requires stopped monitoring, no shutdown/config-save/clear operation,
@@ -129,6 +131,33 @@ Latest persisted heartbeat observed:
 No new boot-restart event was observed. No real reboot was performed in Phase 3.
 Unlock locally and press Start monitoring before relying on the app.
 Do not ask the user to send the phone PIN.
+
+## Heartbeat setting follow-up
+
+- Added a heartbeat interval field in seconds (10–3600).
+- Default remains 300 seconds for existing and new configuration.
+- Stop monitoring, edit, Save configuration, then Start to apply.
+- Preference key heartbeat_ms persists the interval and is loaded on service start,
+  including boot restart. Both initial and subsequent scheduling use that value.
+- Status and monitoring-start records show the configured interval.
+- Power transitions remain event-driven and immediately persisted; heartbeat
+  spacing does not control power-outage detection.
+- Network probe interval and failure threshold are independent of heartbeat.
+- Tests cover default value, allowed bounds, rejection of invalid/overflow-sized
+  values, and unchanged default probe interval/threshold.
+- Complete unit suite, debug/release builds, release vital lint, and refreshed
+  release signature verification passed.
+- Updated debug APK installed with adb install -r.
+- Phone UI showed the heartbeat field, 300-second default, and stopped status.
+- Automated setup for a 10-second runtime check failed with Model query failed:
+  UNKNOWN. No passing shorter-cadence runtime evidence was obtained.
+- Subsequent CSV inspection returned only its header; the reason for history
+  clearing was not independently established. Do not attribute this to a successful
+  automated test. Previously exported copies were not intentionally removed.
+- Phone was put to sleep and then woken for inspection; lock screen is visible.
+  No new heartbeat or held monitoring wake lock was observed in this check.
+- Runtime scheduling/persistence at a user-selected interval remains pending.
+  Unlock locally, set a shorter interval, save, and start monitoring.
 
 ## Next actions
 
