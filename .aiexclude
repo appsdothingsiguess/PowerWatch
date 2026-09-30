@@ -1,0 +1,50 @@
+# PowerWatch - Gemini/Android Studio AI context exclusions
+#
+# Syntax follows .gitignore-style patterns.
+# Keep source, Gradle configuration, AGENTS.md, plan.md, and tests visible.
+
+# Build outputs
+.gradle/
+**/build/
+out/
+
+# IDE transient/local files that are not useful context
+.idea/caches/
+.idea/libraries/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/deploymentTargetDropDown.xml
+.idea/deviceManager.xml
+captures/
+
+# Local SDK path / machine-specific configuration
+local.properties
+
+# Signing material and credentials
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+*.p12
+*.pfx
+*.pem
+*.key
+
+# Environment/secrets
+.env
+.env.*
+secrets.properties
+**/google-services.json
+
+# Generated binaries / packaged outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# Logs and large transient test output
+*.log
+logcat*.txt
+reports/
+screenshots/
