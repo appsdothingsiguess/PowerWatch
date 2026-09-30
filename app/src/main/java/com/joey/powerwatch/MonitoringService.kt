@@ -81,7 +81,7 @@ class MonitoringService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (intent == null && !preferences.getBoolean("active", false)) {
+        if ((intent == null || intent.action == ACTION_BOOT) && !preferences.getBoolean("active", false)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -139,8 +139,10 @@ class MonitoringService : Service() {
                         Status.lastOutage = "Interrupted outage; duration unknown. " + Status.lastOutage
                     }
                 }
-                record(if (intent == null) "service_restart" else "monitoring_started",
-                    "service", "up", startTime, detail = Status.configuration + "; heartbeat every 5 minutes")
+                preferences.edit().remove("boot_start_error").apply()
+                record(if (intent == null || intent.action == ACTION_BOOT) "service_restart" else "monitoring_started",
+                    "service", "up", startTime, detail = Status.configuration + "; heartbeat every 5 minutes" +
+                        (if (intent?.action == ACTION_BOOT) "; resumed after reboot" else ""))
                 probes = ProbeEngine(worker, config, ::onProbe)
                 networkMonitor = NetworkMonitor(this, worker) { path ->
                     guarded {
@@ -265,6 +267,7 @@ class MonitoringService : Service() {
 
     override fun onDestroy() {
         if (started) {
+            Status.stopping = true
             monitor.stop()
             worker.removeCallbacks(heartbeat)
             val endTime = PowerMonitor.now()
@@ -287,6 +290,7 @@ class MonitoringService : Service() {
                     }
                 } finally {
                     wakeLock?.let { if (it.isHeld) it.release() }
+                    Status.stopping = false
                     thread.quitSafely()
                 }
             }
@@ -300,6 +304,7 @@ class MonitoringService : Service() {
 
     companion object {
         const val ACTION_STOP = "com.joey.powerwatch.STOP"
+        const val ACTION_BOOT = "com.joey.powerwatch.BOOT"
         const val PREFS = "monitoring"
         private const val CHANNEL = "power_monitoring"
         private const val NOTIFICATION_ID = 1
@@ -309,6 +314,7 @@ class MonitoringService : Service() {
     /** Live process state; persisted 'active' is restart intent, not proof of a running service. */
     object Status {
         @Volatile var running = false
+        @Volatile var stopping = false
         @Volatile var power = "Unknown"
         @Volatile var lastOutage = "None recorded"
         @Volatile var error = ""

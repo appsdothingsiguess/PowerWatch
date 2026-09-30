@@ -10,11 +10,13 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -29,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private var localError = ""
     private var savingConfiguration = false
     private var exporting = false
+    private var clearing = false
     private val exportDocument = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) exportLog(uri)
@@ -64,6 +67,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<Button>(R.id.view_log).setOnClickListener { showLog() }
+        findViewById<Button>(R.id.clear_log).setOnClickListener {
+            if (!canClearLog()) return@setOnClickListener
+            AlertDialog.Builder(this)
+                .setTitle("Clear saved event log?")
+                .setMessage("Deletes the internal CSV history. Export a copy first if you want to keep it. Exported copies are retained.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Clear log") { _, _ -> clearLog() }
+                .show()
+        }
         findViewById<Button>(R.id.export_csv).setOnClickListener {
             try {
                 exportDocument.launch("PowerWatch-${System.currentTimeMillis()}.csv")
@@ -77,6 +89,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<EditText>(R.id.gateway_override).setText(preferences.getString("gateway_override", ""))
         findViewById<EditText>(R.id.internet_target).setText(preferences.getString("internet_ip", "1.1.1.1"))
         findViewById<EditText>(R.id.failure_threshold).setText(preferences.getInt("failure_threshold", 2).toString())
+        findViewById<CheckBox>(R.id.start_after_reboot).isChecked = preferences.getBoolean("start_after_reboot", true)
         findViewById<Button>(R.id.save_configuration).setOnClickListener { saveConfiguration() }
     }
 
@@ -92,6 +105,7 @@ class MainActivity : AppCompatActivity() {
                     ?: throw IllegalArgumentException("Enter a failure threshold"))
             val preferences = getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
             // Save outside the UI thread; the next service start logs the applied configuration.
+            val restartAfterBoot = findViewById<CheckBox>(R.id.start_after_reboot).isChecked
             savingConfiguration = true
             showStatus()
             logReader.execute {
@@ -99,7 +113,8 @@ class MainActivity : AppCompatActivity() {
                     .putLong("interval_ms", config.intervalMs)
                     .putString("gateway_override", config.gatewayOverride)
                     .putString("internet_ip", config.internetIp)
-                    .putInt("failure_threshold", config.failureThreshold).commit()
+                    .putInt("failure_threshold", config.failureThreshold)
+                    .putBoolean("start_after_reboot", restartAfterBoot).commit()
                 runOnUiThread {
                     if (!isDestroyed) {
                         savingConfiguration = false
@@ -128,6 +143,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showStatus() {
         val status = MonitoringService.Status
+        val canEdit = !status.running && !status.stopping && !savingConfiguration && !clearing
         val last = if (status.lastOutage == "None recorded") {
             getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
                 .getString("last_outage", "None recorded")
@@ -143,15 +159,54 @@ class MainActivity : AppCompatActivity() {
             "\nInternet via Wi-Fi: " + (if (status.running) status.internet else "Not monitored") +
             "\n" + (if (status.running) status.wifi else "") +
             "\nLast network outage: " + status.lastNetworkOutage +
-            "\n" + status.configuration + "\nHeartbeat: 5 minutes." + notificationNote +
+            "\n" + status.configuration + "\nHeartbeat: 5 minutes." +
+            "\nRestart after reboot: " + (if (getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
+                .getBoolean("start_after_reboot", true)) "Enabled when monitoring was running" else "Disabled") +
+            "\n" + getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE).getString("boot_start_error", "").orEmpty() + notificationNote +
             (if (status.error.isNotEmpty()) "\n" + status.error else "") +
             (if (localError.isNotEmpty()) "\n" + localError else "")
-        findViewById<Button>(R.id.start_monitoring).isEnabled = !status.running && !savingConfiguration
-        findViewById<Button>(R.id.save_configuration).isEnabled = !status.running && !savingConfiguration
+        findViewById<Button>(R.id.start_monitoring).isEnabled = canEdit
+        findViewById<Button>(R.id.save_configuration).isEnabled = canEdit
         listOf(R.id.check_interval, R.id.gateway_override, R.id.internet_target, R.id.failure_threshold)
-            .forEach { findViewById<EditText>(it).isEnabled = !status.running && !savingConfiguration }
+            .forEach { findViewById<EditText>(it).isEnabled = canEdit }
+        findViewById<CheckBox>(R.id.start_after_reboot).isEnabled = canEdit
         findViewById<Button>(R.id.stop_monitoring).isEnabled = status.running
-        findViewById<Button>(R.id.export_csv).isEnabled = !exporting
+        findViewById<Button>(R.id.export_csv).isEnabled = !exporting && !clearing
+        findViewById<Button>(R.id.clear_log).isEnabled = canClearLog()
+    }
+
+    private fun canClearLog(): Boolean {
+        val status = MonitoringService.Status
+        return !status.running && !status.stopping && !exporting && !clearing && !savingConfiguration &&
+            !getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE).getBoolean("active", false)
+    }
+
+    private fun clearLog() {
+        if (!canClearLog()) return
+        clearing = true
+        showStatus()
+        logReader.execute {
+            val result = try {
+                if (MonitoringService.Status.running || MonitoringService.Status.stopping ||
+                    getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE).getBoolean("active", false)) {
+                    throw IOException("Stop monitoring before clearing")
+                }
+                EventLogger(File(filesDir, "events.csv")).clear()
+                "Internal event log cleared; exported copies retained"
+            } catch (error: IOException) {
+                "Unable to clear log: " + error.message
+            } catch (error: SecurityException) {
+                "Unable to clear log: " + error.message
+            }
+            runOnUiThread {
+                if (!isDestroyed) {
+                    clearing = false
+                    localError = result
+                    showStatus()
+                    showLog()
+                }
+            }
+        }
     }
 
     private fun exportLog(uri: Uri) {

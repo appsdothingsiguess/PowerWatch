@@ -36,6 +36,10 @@
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="48dp" android:inputType="number"
             android:hint="Consecutive failures (1–10)" />
+        <CheckBox
+            android:id="@+id/start_after_reboot"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:text="@string/start_after_reboot" />
         <Button
             android:id="@+id/save_configuration"
             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -56,6 +60,10 @@
             android:id="@+id/export_csv"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="48dp" android:text="@string/export_csv" />
+        <Button
+            android:id="@+id/clear_log"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:text="@string/clear_log" />
         <TextView
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="@string/log_note" android:layout_marginTop="12dp" />

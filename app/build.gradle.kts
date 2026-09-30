@@ -18,8 +18,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    val releaseKey = rootProject.file("signing/powerwatch-release.p12")
+    val releasePassword = rootProject.file("signing/password.txt")
+    if (releaseKey.exists() && releasePassword.exists()) {
+        signingConfigs {
+            create("powerwatchRelease") {
+                storeFile = releaseKey
+                storePassword = releasePassword.readText().trim()
+                keyAlias = "powerwatch"
+                keyPassword = storePassword
+                storeType = "PKCS12"
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (releaseKey.exists() && releasePassword.exists()) {
+                signingConfig = signingConfigs.getByName("powerwatchRelease")
+            }
             optimization {
                 enable = false
             }

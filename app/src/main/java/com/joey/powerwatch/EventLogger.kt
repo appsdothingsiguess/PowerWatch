@@ -3,6 +3,7 @@ package com.joey.powerwatch
 import java.io.File
 import java.io.FileOutputStream
 import java.io.EOFException
+import java.io.IOException
 import java.io.OutputStream
 import java.time.Instant
 import java.time.ZoneId
@@ -32,21 +33,34 @@ class EventLogger(private val file: File) {
     fun exportSnapshot(output: OutputStream) {
         val snapshot = synchronized(fileLock) {
             if (!file.exists() || file.length() == 0L) null
-            else file.inputStream() to file.length()
+            else (file.inputStream() to file.length()).also { activeExports++ }
         }
         if (snapshot == null) {
             output.write(HEADER.toByteArray(Charsets.UTF_8))
             return
         }
-        snapshot.first.use { input ->
-            var remaining = snapshot.second
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (remaining > 0) {
-                val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                if (count < 0) throw EOFException("Event log changed during export")
-                output.write(buffer, 0, count)
-                remaining -= count
+        try {
+            snapshot.first.use { input ->
+                var remaining = snapshot.second
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (remaining > 0) {
+                    val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                    if (count < 0) throw EOFException("Event log changed during export")
+                    output.write(buffer, 0, count)
+                    remaining -= count
+                }
             }
+        } finally {
+            synchronized(fileLock) { activeExports-- }
+        }
+    }
+
+    /** Caller must stop monitoring and confirm with the user before clearing. */
+    fun clear() = synchronized(fileLock) {
+        if (activeExports > 0) throw IOException("Wait for CSV export to finish before clearing")
+        FileOutputStream(file, false).use { output ->
+            output.write(HEADER.toByteArray(Charsets.UTF_8))
+            output.fd.sync()
         }
     }
 
@@ -64,6 +78,7 @@ class EventLogger(private val file: File) {
 
     companion object {
         private val fileLock = Any()
+        private var activeExports = 0
         const val HEADER = "timestamp,event,target,state,duration_ms,detail,elapsed_ms,boot_count\n"
         private fun escape(value: String): String =
             if (value.any { it == ',' || it == '"' || it == '\n' || it == '\r' })

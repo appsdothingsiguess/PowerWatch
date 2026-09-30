@@ -85,6 +85,38 @@ class EventLoggerTest {
         assertEquals(3, file.readLines().size)
     }
 
+    @Test fun clearRetainsHeaderAndAllowsNewEvents() {
+        val file = temporary.newFile("events.csv")
+        val logger = EventLogger(file)
+        logger.append("heartbeat", "service", "up", EventTime(1, 1), 1)
+        logger.clear()
+        assertEquals(EventLogger.HEADER, file.readText())
+        logger.append("monitoring_started", "service", "up", EventTime(2, 2), 1)
+        assertEquals(2, file.readLines().size)
+    }
+
+    @Test fun clearIsRejectedDuringExportAndAllowedAfterward() {
+        val file = temporary.newFile("events.csv")
+        val logger = EventLogger(file)
+        logger.append("heartbeat", "service", "up", EventTime(1, 1), 1)
+        val original = file.readBytes()
+        val output = object : ByteArrayOutputStream() {
+            override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                try {
+                    logger.clear()
+                    fail("Clear must not truncate an active export")
+                } catch (error: IOException) {
+                    assertTrue(error.message.orEmpty().contains("export"))
+                }
+                super.write(buffer, offset, length)
+            }
+        }
+        logger.exportSnapshot(output)
+        assertArrayEquals(original, output.toByteArray())
+        logger.clear()
+        assertEquals(EventLogger.HEADER, file.readText())
+    }
+
     @Test fun escapesCsvAndLimitsDisplayedRowsWithoutDeletingEvents() {
         val file = temporary.newFile("events.csv")
         val logger = EventLogger(file)
