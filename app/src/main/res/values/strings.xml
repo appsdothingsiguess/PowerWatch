@@ -1,10 +1,15 @@
 <resources>
     <string name="app_name">PowerWatch</string>
+    <string name="toggle_configuration">Show / hide configuration</string>
+    <string name="event_history">Event history</string>
+    <string name="event_filter_note">Filter events (also applies to the formatted report)</string>
+    <string name="event_filter_description">Event category filter</string>
+    <string name="export_report">Export report</string>
     <string name="start_monitoring">Start monitoring</string>
     <string name="stop_monitoring">Stop monitoring</string>
     <string name="view_log">Refresh event log</string>
-    <string name="export_csv">Export CSV</string>
+    <string name="export_csv">Export raw CSV</string>
     <string name="clear_log">Clear saved log (stop monitoring first)</string>
     <string name="start_after_reboot">Resume monitoring after reboot (after unlock)</string>
-    <string name="log_note">Most recent 50 CSV rows. Events and five-minute heartbeats save automatically to internal disk. Export CSV creates a separate copy. This records the phone’s external charger power, not proof of a household outage.</string>
+    <string name="log_note">Newest 100 matching events, updated automatically. All events and configured heartbeats save to internal disk. Reports include the full selected history; raw CSV includes every category. Power events record this phone’s charger power, not proof of a household outage. Network detection timing is bounded by probe interval, timeout and failure threshold.</string>
 </resources>

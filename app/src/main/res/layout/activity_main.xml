@@ -6,79 +6,88 @@
     <LinearLayout
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" android:padding="16dp">
-        <TextView
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/app_name" android:textSize="24sp" android:textStyle="bold" />
+        <TextView android:id="@+id/status"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="@string/app_name" android:textSize="24sp" />
-        <TextView
-            android:id="@+id/status"
+            android:layout_marginTop="12dp" android:textSize="16sp" />
+        <TextView android:id="@+id/outage_summary"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="16dp" android:textSize="18sp" />
-        <TextView
+            android:layout_marginTop="12dp" android:padding="12dp"
+            android:background="?android:attr/colorControlHighlight"
+            android:textSize="17sp" android:textStyle="bold" android:textIsSelectable="true" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginTop="8dp">
+            <Button android:id="@+id/start_monitoring"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:minHeight="48dp" android:text="@string/start_monitoring" />
+            <Button android:id="@+id/stop_monitoring"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:minHeight="48dp" android:text="@string/stop_monitoring" />
+        </LinearLayout>
+        <Button android:id="@+id/toggle_configuration"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="Configuration (stop monitoring before editing)" android:layout_marginTop="12dp" />
-        <EditText
-            android:id="@+id/check_interval"
+            android:minHeight="48dp" android:text="@string/toggle_configuration" />
+        <LinearLayout android:id="@+id/configuration_fields"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:inputType="number"
-            android:hint="Check interval in milliseconds (1000–60000)" />
-        <TextView
+            android:orientation="vertical" android:visibility="gone">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Configuration (stop monitoring before editing)" android:layout_marginTop="12dp" />
+            <EditText android:id="@+id/check_interval"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:inputType="number"
+                android:hint="Check interval in milliseconds (1000–60000)" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Heartbeat interval (seconds): confirms the service is running. Power changes are logged immediately." />
+            <EditText android:id="@+id/heartbeat_interval"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:inputType="number" android:hint="Heartbeat in seconds (10–3600)" />
+            <EditText android:id="@+id/gateway_override"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:inputType="textNoSuggestions" android:hint="Router IPv4 override (blank = auto)" />
+            <EditText android:id="@+id/internet_target"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:inputType="textNoSuggestions" android:hint="Internet IPv4 address (TCP port 443)" />
+            <EditText android:id="@+id/failure_threshold"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:inputType="number" android:hint="Consecutive failures (1–10)" />
+            <CheckBox android:id="@+id/start_after_reboot"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:text="@string/start_after_reboot" />
+            <Button android:id="@+id/save_configuration"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:text="Save configuration" />
+        </LinearLayout>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/event_history" android:textSize="20sp" android:textStyle="bold" android:layout_marginTop="16dp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/event_filter_note" />
+        <Spinner android:id="@+id/log_filter"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="Heartbeat interval (seconds): confirms the service is running. Power changes are logged immediately." />
-        <EditText
-            android:id="@+id/heartbeat_interval"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:inputType="number"
-            android:hint="Heartbeat in seconds (10–3600)" />
-        <EditText
-            android:id="@+id/gateway_override"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:inputType="textNoSuggestions"
-            android:hint="Router IPv4 override (blank = auto)" />
-        <EditText
-            android:id="@+id/internet_target"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:inputType="textNoSuggestions"
-            android:hint="Internet IPv4 address (TCP port 443)" />
-        <EditText
-            android:id="@+id/failure_threshold"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:inputType="number"
-            android:hint="Consecutive failures (1–10)" />
-        <CheckBox
-            android:id="@+id/start_after_reboot"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:text="@string/start_after_reboot" />
-        <Button
-            android:id="@+id/save_configuration"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:text="Save configuration" />
-        <Button
-            android:id="@+id/start_monitoring"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:text="@string/start_monitoring" />
-        <Button
-            android:id="@+id/stop_monitoring"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:text="@string/stop_monitoring" />
-        <Button
-            android:id="@+id/view_log"
+            android:minHeight="48dp" android:contentDescription="@string/event_filter_description" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <Button android:id="@+id/export_report"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:minHeight="48dp" android:text="@string/export_report" />
+            <Button android:id="@+id/export_csv"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:minHeight="48dp" android:text="@string/export_csv" />
+        </LinearLayout>
+        <Button android:id="@+id/view_log"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="48dp" android:text="@string/view_log" />
-        <Button
-            android:id="@+id/export_csv"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:minHeight="48dp" android:text="@string/export_csv" />
-        <Button
-            android:id="@+id/clear_log"
+        <Button android:id="@+id/clear_log"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="48dp" android:text="@string/clear_log" />
-        <TextView
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/log_note" android:layout_marginTop="12dp" android:textSize="14sp" />
+        <TextView android:id="@+id/log_count"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="@string/log_note" android:layout_marginTop="12dp" />
-        <TextView
-            android:id="@+id/event_log"
+            android:layout_marginTop="12dp" android:textStyle="bold" />
+        <TextView android:id="@+id/event_log"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:textIsSelectable="true" android:fontFamily="monospace"
-            android:textSize="12sp" android:layout_marginTop="8dp" />
+            android:textIsSelectable="true" android:textSize="15sp"
+            android:lineSpacingExtra="3dp" android:layout_marginTop="12dp" />
     </LinearLayout>
 </ScrollView>

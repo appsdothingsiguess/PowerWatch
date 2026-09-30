@@ -5,6 +5,8 @@ import java.io.FileOutputStream
 import java.io.EOFException
 import java.io.IOException
 import java.io.OutputStream
+import java.io.InputStream
+import java.io.ByteArrayInputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -55,9 +57,43 @@ class EventLogger(private val file: File) {
         }
     }
 
+    /** Parse/render outside the writer lock, bounded to complete rows present at capture time. */
+    fun <T> readSnapshot(action: (InputStream) -> T): T {
+        val snapshot = synchronized(fileLock) {
+            if (!file.exists() || file.length() == 0L) null
+            else (file.inputStream() to file.length()).also { activeExports++ }
+        }
+        if (snapshot == null) return ByteArrayInputStream(HEADER.toByteArray(Charsets.UTF_8)).use(action)
+        try {
+            return snapshot.first.use { source ->
+                val bounded = object : InputStream() {
+                    private var remaining = snapshot.second
+                    override fun read(): Int {
+                        if (remaining == 0L) return -1
+                        val value = source.read()
+                        if (value < 0) throw EOFException("Event log changed during read")
+                        remaining--
+                        return value
+                    }
+                    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                        if (length == 0) return 0
+                        if (remaining == 0L) return -1
+                        val count = source.read(buffer, offset, minOf(length.toLong(), remaining).toInt())
+                        if (count < 0) throw EOFException("Event log changed during read")
+                        remaining -= count
+                        return count
+                    }
+                }
+                action(bounded)
+            }
+        } finally {
+            synchronized(fileLock) { activeExports-- }
+        }
+    }
+
     /** Caller must stop monitoring and confirm with the user before clearing. */
     fun clear() = synchronized(fileLock) {
-        if (activeExports > 0) throw IOException("Wait for CSV export to finish before clearing")
+        if (activeExports > 0) throw IOException("Wait for log reading or export to finish before clearing")
         FileOutputStream(file, false).use { output ->
             output.write(HEADER.toByteArray(Charsets.UTF_8))
             output.fd.sync()

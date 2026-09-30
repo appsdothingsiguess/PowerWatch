@@ -13,6 +13,18 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
+import android.widget.Spinner
+import android.widget.ArrayAdapter
+import android.widget.AdapterView
+import android.view.View
+import android.os.SystemClock
+import android.provider.Settings
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
+import android.text.style.RelativeSizeSpan
+import android.graphics.Typeface
+import java.time.OffsetDateTime
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -32,6 +44,17 @@ class MainActivity : AppCompatActivity() {
     private var savingConfiguration = false
     private var exporting = false
     private var clearing = false
+    private var logLoading = false
+    private var logReloadRequested = false
+    private var loadedRevision = -1L
+    private var logView: LogView? = null
+    private var filter = LogFilter.ALL
+    private var reportFilter = LogFilter.ALL
+    private var bootCount = -1
+    private val exportReportDocument = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/html")) { uri ->
+        if (uri != null) exportLog(uri, report = true, selectedFilter = reportFilter)
+    }
     private val exportDocument = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) exportLog(uri)
@@ -41,6 +64,8 @@ class MainActivity : AppCompatActivity() {
     private val refresh = object : Runnable {
         override fun run() {
             showStatus()
+            showOutageSummary()
+            if (loadedRevision != MonitoringService.Status.logRevision && !logLoading) showLog()
             handler.postDelayed(this, 1000)
         }
     }
@@ -66,7 +91,43 @@ class MainActivity : AppCompatActivity() {
                     .setAction(MonitoringService.ACTION_STOP))
             }
         }
+        bootCount = Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
+        val preferencesForView = getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
+        filter = LogFilter.entries.getOrElse(savedInstanceState?.getInt("filter")
+            ?: preferencesForView.getInt("log_filter", 0)) { LogFilter.ALL }
+        reportFilter = LogFilter.entries.getOrElse(savedInstanceState?.getInt("report_filter") ?: 0) { LogFilter.ALL }
+        if (savedInstanceState == null && intent?.action == MonitoringService.ACTION_OUTAGES) filter = LogFilter.OUTAGES
+        findViewById<Spinner>(R.id.log_filter).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_item,
+                LogFilter.entries.map { it.label }).apply {
+                setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            }
+            setSelection(filter.ordinal)
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    filter = LogFilter.entries[position]
+                    preferencesForView.edit().putInt("log_filter", position).apply()
+                    showLog()
+                }
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+        }
+        findViewById<View>(R.id.configuration_fields).visibility =
+            if (savedInstanceState?.getBoolean("configuration_open") == true) View.VISIBLE else View.GONE
+        findViewById<Button>(R.id.toggle_configuration).setOnClickListener {
+            val fields = findViewById<View>(R.id.configuration_fields)
+            fields.visibility = if (fields.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
         findViewById<Button>(R.id.view_log).setOnClickListener { showLog() }
+        findViewById<Button>(R.id.export_report).setOnClickListener {
+            reportFilter = filter
+            try {
+                exportReportDocument.launch("PowerWatch-${filter.name.lowercase()}-${System.currentTimeMillis()}.html")
+            } catch (error: ActivityNotFoundException) {
+                localError = "No document picker available: " + error.message
+                showStatus()
+            }
+        }
         findViewById<Button>(R.id.clear_log).setOnClickListener {
             if (!canClearLog()) return@setOnClickListener
             AlertDialog.Builder(this)
@@ -149,22 +210,16 @@ class MainActivity : AppCompatActivity() {
     private fun showStatus() {
         val status = MonitoringService.Status
         val canEdit = !status.running && !status.stopping && !savingConfiguration && !clearing
-        val last = if (status.lastOutage == "None recorded") {
-            getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
-                .getString("last_outage", "None recorded")
-        } else status.lastOutage
         val notificationNote = if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED) "\nNotifications disabled in Android settings." else ""
         findViewById<TextView>(R.id.status).text =
             "Monitoring: " + (if (status.running) "Running" else "Stopped") +
             "\nExternal charger power: " + (if (status.running) status.power else "Not monitored") +
-            "\nLast power outage: " + last +
             "\nRouter: " + (if (status.running) status.router else "Not monitored") +
             "\nInternet via Wi-Fi: " + (if (status.running) status.internet else "Not monitored") +
             "\n" + (if (status.running) status.wifi else "") +
-            "\nLast network outage: " + status.lastNetworkOutage +
-            "\n" + status.configuration + "\nHeartbeat: " +
+            "\nHeartbeat: " +
             (getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE).getLong("heartbeat_ms", 300_000) / 1000) +
             " seconds (service check-in)." +
             "\nRestart after reboot: " + (if (getSharedPreferences(MonitoringService.PREFS, MODE_PRIVATE)
@@ -179,6 +234,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<CheckBox>(R.id.start_after_reboot).isEnabled = canEdit
         findViewById<Button>(R.id.stop_monitoring).isEnabled = status.running
         findViewById<Button>(R.id.export_csv).isEnabled = !exporting && !clearing
+        findViewById<Button>(R.id.export_report).isEnabled = !exporting && !clearing
         findViewById<Button>(R.id.clear_log).isEnabled = canClearLog()
     }
 
@@ -216,20 +272,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun exportLog(uri: Uri) {
+    private fun exportLog(uri: Uri, report: Boolean = false, selectedFilter: LogFilter = LogFilter.ALL) {
         exporting = true
-        localError = "Exporting CSV…"
+        val format = if (report) "Report" else "CSV"
+        localError = "Exporting $format…"
         showStatus()
         logReader.execute {
             val result = try {
                 val output = contentResolver.openOutputStream(uri, "w")
                     ?: throw IOException("Unable to open the selected document")
-                output.use { EventLogger(File(filesDir, "events.csv")).exportSnapshot(it) }
-                "CSV exported"
+                output.use { destination ->
+                    val logger = EventLogger(File(filesDir, "events.csv"))
+                    if (report) logger.readSnapshot { source ->
+                        LogPresentation.exportReport(source, destination, selectedFilter, OffsetDateTime.now().toString())
+                    } else logger.exportSnapshot(destination)
+                }
+                "$format exported" + if (report) " · " + selectedFilter.label + " · full history" else ""
             } catch (error: IOException) {
-                "CSV export failed; the destination may be incomplete: " + error.message
+                "$format export failed; the destination may be incomplete: " + error.message
             } catch (error: SecurityException) {
-                "CSV export permission denied: " + error.message
+                "$format export permission denied: " + error.message
             }
             runOnUiThread {
                 if (!isDestroyed) {
@@ -242,15 +304,75 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showLog() {
+        if (logLoading) { logReloadRequested = true; return }
+        logLoading = true
+        logReloadRequested = false
+        val requestedFilter = filter
+        val revision = MonitoringService.Status.logRevision
         logReader.execute {
-            val text = try {
-                EventLogger(File(filesDir, "events.csv")).recentLines()
+            var errorText = ""
+            val result = try {
+                EventLogger(File(filesDir, "events.csv")).readSnapshot {
+                    LogPresentation.read(it, requestedFilter)
+                }
             } catch (error: IOException) {
-                "Unable to read event log: " + error.message
+                errorText = "Unable to read event log: " + error.message
+                null
+            } catch (error: SecurityException) {
+                errorText = "Unable to access event log: " + error.message
+                null
             }
             runOnUiThread {
-                if (!isDestroyed) findViewById<TextView>(R.id.event_log).text = text
+                if (!isDestroyed) {
+                    logLoading = false
+                    if (requestedFilter == filter) {
+                        loadedRevision = revision
+                        logView = result
+                        val text = SpannableStringBuilder()
+                        result?.entries?.forEach { entry ->
+                            val start = text.length
+                            text.append(entry.title).append("\n")
+                            text.setSpan(StyleSpan(Typeface.BOLD), start, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            text.setSpan(RelativeSizeSpan(1.12f), start, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            text.append(entry.body()).append("\n\n")
+                        }
+                        findViewById<TextView>(R.id.event_log).text = if (errorText.isNotEmpty()) errorText
+                            else if (text.isEmpty()) "No matching events recorded." else text
+                        findViewById<TextView>(R.id.log_count).text = if (result == null) "Log unavailable" else
+                            "${requestedFilter.label} · ${result.entries.size} of ${result.matchingCount} events · newest first"
+                        showOutageSummary()
+                    }
+                    if (logReloadRequested || requestedFilter != filter) showLog()
+                }
             }
+        }
+    }
+
+    private fun showOutageSummary() {
+        val view = logView
+        val entries = view?.activeOutages?.takeIf { it.isNotEmpty() }
+            ?: listOfNotNull(view?.latestOutage)
+        findViewById<TextView>(R.id.outage_summary).text = if (view == null) {
+            if (loadedRevision < 0) "Loading outage history…" else "Outage history unavailable · see event log error"
+        } else if (entries.isEmpty()) {
+            "No outages recorded."
+        } else entries.joinToString("\n\n") {
+            it.outageSummary(SystemClock.elapsedRealtime(), bootCount, MonitoringService.Status.running)
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("filter", filter.ordinal)
+        outState.putInt("report_filter", reportFilter.ordinal)
+        outState.putBoolean("configuration_open", findViewById<View>(R.id.configuration_fields).visibility == View.VISIBLE)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == MonitoringService.ACTION_OUTAGES) {
+            findViewById<Spinner>(R.id.log_filter).setSelection(LogFilter.OUTAGES.ordinal)
         }
     }
 

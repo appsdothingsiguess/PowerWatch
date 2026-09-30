@@ -17,6 +17,11 @@ import android.util.Log
 import java.io.File
 import java.io.IOException
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import android.os.SystemClock
+import android.Manifest
+import android.content.pm.PackageManager
 
 /** Owns monitoring independently of the Activity. Disk writes are serialized off the main thread. */
 class MonitoringService : Service() {
@@ -36,6 +41,7 @@ class MonitoringService : Service() {
     private val bootCount by lazy {
         Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
     }
+    private val noticeStarts = mutableMapOf<String, LogRecord>()
     private var started = false
     @Volatile private var stopRequested = false
 
@@ -73,6 +79,14 @@ class MonitoringService : Service() {
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "Power monitoring", NotificationManager.IMPORTANCE_LOW))
+        getSystemService(NotificationManager::class.java).apply {
+            createNotificationChannel(NotificationChannel(OUTAGE_CHANNEL, "Outage alerts",
+                NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Detected power, Wi-Fi router and internet outages and restorations"
+            })
+            // Old process observations are not proof that an outage is still being observed.
+            listOf(10, 11, 12).forEach { cancel(it) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -178,7 +192,21 @@ class MonitoringService : Service() {
         durationMs: Long? = null, detail: String = ""
     ) {
         logger.append(event, target, state, time, bootCount, durationMs, detail)
+        Status.logRevision++
         Log.i("PowerWatch", "$event $target $state duration_ms=$durationMs")
+        if (event == "outage_start" || event == "outage_end") {
+            val stamp = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(
+                Instant.ofEpochMilli(time.wallMs).atZone(ZoneId.systemDefault()))
+            val row = LogRecord(stamp, event, target, state, durationMs, detail, time.elapsedMs, bootCount)
+            val start = if (event == "outage_start") {
+                noticeStarts[target] = row
+                null
+            } else noticeStarts.remove(target)
+            showOutageNotification(LogEntry(row, start), live = event == "outage_start")
+        } else if (event == "monitoring_stopped" || event == "monitoring_interrupted") {
+            noticeStarts.values.forEach { showOutageNotification(LogEntry(it, interrupted = true), live = false) }
+            noticeStarts.clear()
+        }
     }
 
     private fun onProbe(target: String, result: ProbeResult, time: EventTime) {
@@ -262,6 +290,44 @@ class MonitoringService : Service() {
             .build()
     }
 
+    private fun showOutageNotification(entry: LogEntry, live: Boolean) {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED) return
+        val id = when (entry.row.target) { "power" -> 10; "router" -> 11; "internet" -> 12; else -> return }
+        val open = PendingIntent.getActivity(this, 50,
+            Intent(this, MainActivity::class.java).setAction(ACTION_OUTAGES)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val body = if (live) entry.title + "\nStarted: " + LogPresentation.date(entry.row.timestamp) +
+            "\nDuration: ongoing · see running timer"
+        else entry.outageSummary(SystemClock.elapsedRealtime(), bootCount, false)
+        // Android runs the timer; do not leave a frozen elapsed-duration number in expanded text.
+        val builder = Notification.Builder(this, OUTAGE_CHANNEL)
+            .setSmallIcon(R.drawable.ic_power_monitor)
+            .setContentTitle(if (entry.interrupted) "Observation ended · " + LogPresentation.targetName(entry.row.target) else entry.title)
+            .setContentText(if (live) "Started: " + LogPresentation.date(entry.row.timestamp) else
+                if (entry.interrupted) "Final duration unknown" else "Duration: " +
+                    (entry.row.durationMs?.let(LogPresentation::duration) ?: "Unknown"))
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setContentIntent(open)
+            .setAutoCancel(!live)
+            .setCategory(Notification.CATEGORY_EVENT)
+            .setOnlyAlertOnce(!live)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+        if (live) {
+            // SystemUI runs the elapsed-time chronometer; no one-second notification updates.
+            builder.setWhen(System.currentTimeMillis() -
+                (SystemClock.elapsedRealtime() - entry.row.elapsedMs).coerceAtLeast(0))
+                .setUsesChronometer(true)
+        } else builder.setShowWhen(false)
+        try {
+            getSystemService(NotificationManager::class.java).notify(id, builder.build())
+        } catch (error: SecurityException) {
+            // Optional alerts must never stop the monitoring/logging pipeline.
+            Log.w("PowerWatch", "Outage alert permission denied", error)
+        }
+    }
+
     private fun updateNotification() {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification())
     }
@@ -307,12 +373,15 @@ class MonitoringService : Service() {
         const val ACTION_STOP = "com.joey.powerwatch.STOP"
         const val ACTION_BOOT = "com.joey.powerwatch.BOOT"
         const val PREFS = "monitoring"
+        const val ACTION_OUTAGES = "com.joey.powerwatch.VIEW_OUTAGES"
+        private const val OUTAGE_CHANNEL = "outage_alerts"
         private const val CHANNEL = "power_monitoring"
         private const val NOTIFICATION_ID = 1
     }
 
     /** Live process state; persisted 'active' is restart intent, not proof of a running service. */
     object Status {
+        @Volatile var logRevision = 0L
         @Volatile var running = false
         @Volatile var stopping = false
         @Volatile var power = "Unknown"

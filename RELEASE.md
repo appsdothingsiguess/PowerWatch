@@ -45,8 +45,13 @@ Heartbeat interval is set while stopped, in seconds (10–3600; default 300).
 Power changes are recorded immediately, independently of the heartbeat interval. Export CSV
 creates a separate user-selected copy. No broad storage permission is needed.
 Clear Log requires stopped monitoring and explicit confirmation, and preserves
-exported copies. It clears the CSV history; the last-outage status summary is
-retained.
+exported copies. It clears the CSV history. Legacy checkpoint summaries remain
+in preferences, but the new outage-history panel reflects the saved CSV.
+
+Readable history can be filtered by category. Export report creates a printable,
+self-contained HTML copy of the full selected history; raw CSV includes all
+categories. Outage alerts show start date/time and a running timer, then final
+duration on recovery. Notification sound and visibility follow Android settings.
 
 ## Restart after reboot
 
@@ -68,11 +73,15 @@ lists boot completion as an exemption; specialUse has no while-in-use prerequisi
 - CSV clear/header/new-event and clear-versus-export tests passed.
 - Complete debug unit suite, assembleDebug, assembleRelease, and release vital lint passed.
 - New debug APK installed with app data preserved.
-- Physical boot restart and Clear Log UI validation remain pending because the
-  connected phone is PIN-locked. No real reboot or destructive log clear was
-  performed during this implementation.
-- After the APK update, no running foreground monitoring process was confirmed.
-  Unlock the phone and press Start monitoring before relying on monitoring.
+- Physical reboot resume passed after the user's reboot and first unlock:
+  BOOT_COMPLETED start, foreground service, wake lock, new boot count, and later
+  heartbeats were observed.
+- Readable history, outage filtering, and HTML export were checked on the phone.
+- Final APK recorded Wi-Fi outages and recoveries with the screen off; Android
+  notification records confirmed live timers and final durations.
+- Final observed state: monitoring running, Wi-Fi restored, partial wake lock
+  held, screen off. Clear Log physical acceptance and extended runtime testing
+  remain pending. See PHASE3_HANDOFF_2026-09-30.md for evidence and limitations.
 - Overnight interruption investigation is deferred at the user's request.
 - The user will perform extended/24-hour reliability testing later.
 - WAN-only testing remains skipped at the user's request.
